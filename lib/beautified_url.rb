@@ -2,14 +2,19 @@ module BeautifiedUrl
 
   def self.included(base)
     base.extend(ClassMethods)
-    base.send(:before_validation, :beautify_url)
+    base.send(:before_create, :beautify_url_on_create)
+    base.send(:before_update, :beautify_url_on_update)
+    base.send(:before_save, :beautify_url_on_save)
+    base.send(:before_validation, :beautify_url_on_validate)
   end
 
   module ClassMethods
     attr_accessor :bu_token
     attr_accessor :bu_attributes_hset
     attr_accessor :bu_scope_set
+    attr_accessor :bu_callback_event
 
+    #Checks if model is well equipped to use beautified_url capability by checking up attribute names, if it is paired with attribute starting with name '_bu_'
     def is_beautifiable?
       @bu_token ||= "_bu_"
       @bu_attributes_hset = {}
@@ -22,9 +27,27 @@ module BeautifiedUrl
       (not @bu_attributes_hset.empty?)
     end
 
+    #Accepts scope parameter for beautified_url
+    #Eg => beautify_url_with_scope :company_id #For universal scope of all attributes with beautified_url capabilities.
+    #Eg => beautify_url_with_scope {:name => :company_id, :title => :subdomain}
     def beautify_url_with_scope(options)
       options = options.to_s if options.is_a?(Symbol)
       @bu_scope_set = options if options.is_a?(Hash) or options.is_a?(String)
+    end
+
+    #Signifies on what 'before' event should the beautification take palce.
+    #Valid values are :create (default value), :save, :update, :validate
+    def beautify_on(event)
+      begin
+        event = event.to_sym unless event.is_a?(Symbol)
+        @bu_callback_event = [:create, :save, :update, :validate].include?(event) ? event : :create
+      rescue Exception => e
+        Rails.logger.debug e.message
+        Rails.logger.debug e.backtrace.join("\n")
+        @bu_callback_event = :create
+      end
+
+      @bu_callback_event
     end
   end
 
@@ -74,8 +97,8 @@ module BeautifiedUrl
     bu_attr_value_t
   end
 
-  #makes beautiful url by looking at parent attribute(s) whose bu_attributes are identified by "_bu_" (default bu_token)
-  #only if bu_attribute is not already populated
+#makes beautiful url by looking at parent attribute(s) whose bu_attributes are identified by "_bu_" (default bu_token)
+#only if bu_attribute is not already populated
   def beautify_url(base = self.class)
     return unless base.is_beautifiable?
 
@@ -87,6 +110,24 @@ module BeautifiedUrl
       end
     end
   end
+
+  private
+  def beautify_url_on_create(base = self.class)
+    beautify_url if base.bu_callback_event.nil? or base.bu_callback_event == :create
+  end
+
+  def beautify_url_on_update(base = self.class)
+    beautify_url if base.bu_callback_event == :update
+  end
+
+  def beautify_url_on_save(base = self.class)
+    beautify_url if base.bu_callback_event == :save
+  end
+
+  def beautify_url_on_validate(base = self.class)
+    beautify_url if base.bu_callback_event == :validate
+  end
+
 end
 
 class String
